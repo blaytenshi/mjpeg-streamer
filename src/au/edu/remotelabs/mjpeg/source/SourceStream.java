@@ -374,18 +374,32 @@ public class SourceStream implements Runnable
      */
     private String readStreamLine(BufferedInputStream in) throws IOException
     {
+    	// create an array of char named buf with size 255
         char buf[] = new char[255];
+        // create counter of int named len with inital value 0
         int len = 0;
         
+        // reads next byte of data and stores in buf[0] of char array and increments from 0 to 1
         buf[len++] = (char) in.read();
+        // reads next byte of data and stores in buf[1] of char array and increments from 1 to 2
         buf[len++] = (char) in.read();
         
+        // checks to see if the last two bytes read was carriage return (\r) and new line feed (\n)
+        // if they aren't, read next byte while checking if buf is full.
         while (buf[len - 2] != '\r' && buf[len - 1] != '\n')
         {
-            if (len == buf.length) buf = Arrays.copyOf(buf, buf.length * 2);
+        	// if the count is equal to size of buf array...
+            if (len == buf.length)
+            {
+            	// then create a copy of buf array (and contents) with twice its current size
+            	buf = Arrays.copyOf(buf, buf.length * 2);
+            }
+            // read next byte into current count, increment len by 1
             buf[len++]= (char) in.read();
         }
         
+        // if the last two bytes are \r\n then 
+        // transform the buf array between sections with chars (0 and len) into a string, trimming leading and trailing empty spaces
         return String.valueOf(buf, 0, len).trim();
     }
     
