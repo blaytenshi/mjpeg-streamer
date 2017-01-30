@@ -214,6 +214,7 @@ public class SourceStream implements Runnable
             }
             
             /* Read boundary from content type header. */
+            /* Will also strip quotation marks from boundary if it has them in the content-type. */
             String contentType = conn.getContentType();
             if (contentType != null)
             {
@@ -221,11 +222,11 @@ public class SourceStream implements Runnable
                 int pos = contentType.indexOf(boundaryTag);
                 if (pos > 0)
                 {
-                    this.boundary = "--" + contentType.substring(pos + boundaryTag.length());
+                    this.boundary = "--" + contentType.substring(pos + boundaryTag.length()).replaceAll("\"", "");
                     
                     /* If there are further contain type information, strip from boundary tag. */
                     int s = this.boundary.indexOf(';');
-                    if (s > 0) this.boundary = this.boundary.substring(0, s);
+                    if (s > 0) this.boundary = this.boundary.substring(0, s).replaceAll("\"", "");
                     
                     this.logger.info("Loaded stream " + this.config.name + " boundary as " + boundary);
                 }
