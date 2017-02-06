@@ -233,7 +233,7 @@ public class SourceStream implements Runnable
             }
             
             /* Read loop to acquire M-JPEG frames from source stream. */
-            BufferedInputStream in = new BufferedInputStream(conn.getInputStream());
+         //   BufferedInputStream in = new BufferedInputStream(conn.getInputStream());
             while (!this.stop)
             {
                 /*
@@ -257,43 +257,89 @@ public class SourceStream implements Runnable
                 if (mime == null) break;
                 
                 int size = this.readContentLength(in);
-                if (size < 0) break;
-                
-                /* An addition blank line. */
-                this.readStreamLine(in);
-                
-                /* Read buf bytes. */
-                byte image[] = new byte[size];
-                int r, read = 0;
-                
-                while (read < size && (r = in.read(image, read, size - read)) > 0)
-                {
-                    read += r;
-                    if (this.stop) break;
-                }
-                
-                if (size != read)
-                {
-                    this.logger.warning("Failed to fully read buf bytes for stream " + this.config.name + 
-                            ", read " + read + " of " + size + " bytes.");
-                    this.error = true;
-                    this.errorReason = "Failed to read buf bytes";
-                    break;
-                }
-                
-                /* Validate received frame is correct. */
-                if (mime.equalsIgnoreCase("jpeg") &&
-                    !(image[0] == 0xFF && image[1] == 0xD8 && image[size - 2] == 0xFF && image[size - 1] == 0xD9))
-                {
-                    this.logger.info("Received JPEG buf for " + this.config.name + " has incorrect SOI and EOI "
-                            + "marker bytes, discarding frame as it may be corrupt.");
-                    continue;
-                }
-                
-                synchronized (this)
-                {                
-                    this.frame = new Frame(mime, image);
-                    this.notifyAll();
+                if (size >= 0) {
+	                
+	                /* An addition blank line. */
+	                this.readStreamLine(in);
+	                
+	                /* Read buf bytes. */
+	                // create byte array the size of content-length
+	                byte image[] = new byte[size];
+	                // create two counters r and read
+	                int r, read = 0;
+	                
+	                // while read is less than size of content-length and number of bytes read is greater than 0
+	                while (read < size && (r = in.read(image, read, size - read)) > 0)
+	                {
+	                    read += r;
+	                    if (this.stop) break;
+	                }
+	                
+	                if (size != read)
+	                {
+	                    this.logger.warning("Failed to fully read buf bytes for stream " + this.config.name + 
+	                            ", read " + read + " of " + size + " bytes.");
+	                    this.error = true;
+	                    this.errorReason = "Failed to read buf bytes";
+	                    break;
+	                }
+	                
+	                /* Validate received frame is correct. */
+	                if (mime.equalsIgnoreCase("jpeg") &&
+	                    !(image[0] == 0xFF && image[1] == 0xD8 && image[size - 2] == 0xFF && image[size - 1] == 0xD9))
+	                {
+	                    this.logger.info("Received JPEG buf for " + this.config.name + " has incorrect SOI and EOI "
+	                            + "marker bytes, discarding frame as it may be corrupt.");
+	                    continue;
+	                }
+	                
+	                synchronized (this)
+	                {                
+	                    this.frame = new Frame(mime, image);
+	                    this.notifyAll();
+	                }
+                } else if(size == -1) {
+                	
+                	this.logger.warning("No Content Length given. Attempting to detect end of frame FFD9");
+                	
+	                /* An addition blank line. */
+	                this.readStreamLine(in);
+	                
+	                byte[] image = null;
+	                byte[] buf = new byte[10240];
+	                int pos = 0, tmp;
+	                
+                	// Nothing was read from the bufferInputStream
+                	if ((tmp = in.read(buf, pos, buf.length - pos)) > 0) {
+                		
+                		this.logger.warning("Size of tmp is " + tmp + ".");
+                		
+	                	for (int i = pos; i < pos + tmp; i++) {
+	                		
+	                		this.logger.warning("Attempting to check buf[" + i + "]. It contains " + Integer.toHexString(Byte.toUnsignedInt(buf[i])) + ".");
+	                		
+	                		if (i > 0 && buf[i - 1] == ((byte)0xFF) && buf[i] == ((byte)0xD9)) {
+	                			this.logger.warning("End of stream found! :D");
+	                			image = buf;
+	                			break;
+	                		}
+	                		
+	                	}
+	                	
+	                	pos += tmp;
+	                	if (pos == buf.length) {
+	                		buf = Arrays.copyOf(buf, buf.length * 2);
+	                	}
+                	} else {
+                		this.logger.warning("Nothing was read from the stream...");
+                		continue;
+                	}
+                	
+	                synchronized (this)
+	                {                
+	                    this.frame = new Frame(mime, image);
+	                    this.notifyAll();
+	                }
                 }
             }
             
