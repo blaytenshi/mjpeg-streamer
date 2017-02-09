@@ -9,6 +9,7 @@ package au.edu.remotelabs.mjpeg.source;
 
 import java.io.BufferedInputStream;
 import java.io.IOException;
+import java.io.PushbackInputStream;
 import java.net.HttpURLConnection;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -233,7 +234,8 @@ public class SourceStream implements Runnable
             }
             
             /* Read loop to acquire M-JPEG frames from source stream. */
-         //   BufferedInputStream in = new BufferedInputStream(conn.getInputStream());
+            BufferedInputStream bis = new BufferedInputStream(conn.getInputStream());
+            PushbackInputStream in = new PushbackInputStream(bis, 4096);
             while (!this.stop)
             {
                 /*
@@ -257,6 +259,7 @@ public class SourceStream implements Runnable
                 if (mime == null) break;
                 
                 int size = this.readContentLength(in);
+                byte[] image = null;
                 if (size >= 0) {
 	                
 	                /* An addition blank line. */
@@ -264,7 +267,7 @@ public class SourceStream implements Runnable
 	                
 	                /* Read buf bytes. */
 	                // create byte array the size of content-length
-	                byte image[] = new byte[size];
+	                image = new byte[size];
 	                // create two counters r and read
 	                int r, read = 0;
 	                
@@ -293,11 +296,6 @@ public class SourceStream implements Runnable
 	                    continue;
 	                }
 	                
-	                synchronized (this)
-	                {                
-	                    this.frame = new Frame(mime, image);
-	                    this.notifyAll();
-	                }
                 } else if(size == -1) {
                 	
                 	this.logger.warning("No Content Length given. Attempting to detect end of frame FFD9");
@@ -305,41 +303,49 @@ public class SourceStream implements Runnable
 	                /* An addition blank line. */
 	                this.readStreamLine(in);
 	                
-	                byte[] image = null;
-	                byte[] buf = new byte[10240];
+	                byte[] buf = new byte[4096];
 	                int pos = 0, tmp;
+	                boolean found = false;
 	                
-                	// Nothing was read from the bufferInputStream
-                	if ((tmp = in.read(buf, pos, buf.length - pos)) > 0) {
-                		
-                		this.logger.warning("Size of tmp is " + tmp + ".");
-                		
-	                	for (int i = pos; i < pos + tmp; i++) {
+	                while(!found) {
+	                	if ((tmp = in.read(buf, pos, 4096)) > 0) {
 	                		
-	                		this.logger.warning("Attempting to check buf[" + i + "]. It contains " + Integer.toHexString(Byte.toUnsignedInt(buf[i])) + ".");
+	                		this.logger.warning("Size of tmp is " + tmp + ".");
 	                		
-	                		if (i > 0 && buf[i - 1] == ((byte)0xFF) && buf[i] == ((byte)0xD9)) {
-	                			this.logger.warning("End of stream found! :D");
-	                			image = buf;
-	                			break;
-	                		}
-	                		
+		                	for (int i = pos; i < pos + tmp; i++) {
+	
+		                		if (i > 0 && buf[i - 1] == ((byte)0xFF) && buf[i] == ((byte)0xD9)) {
+		                			this.logger.warning("FFD9 found");
+		                			found = true;
+		                			in.unread(buf, i + 1, pos + tmp - i);
+		                			image = Arrays.copyOf(buf, i + 1);
+		                			// break out of loop because we don't need to check the rest of the bytes?
+		                			break;
+		                		}
+		                		
+		                	}
+		                	
+		                	// skip all this if end bytes are found...
+		                	if (!found) {
+		                		this.logger.warning("FFD9 has not been found, extending array and reading next set.");
+			                	pos += tmp;
+			                	if (pos == buf.length) {
+			                		buf = Arrays.copyOf(buf, buf.length * 2);
+			                	}
+		                	}
+		                	
+	                	} else {
+	                		this.logger.warning("Nothing was read from the stream...");
+	                		continue;
 	                	}
-	                	
-	                	pos += tmp;
-	                	if (pos == buf.length) {
-	                		buf = Arrays.copyOf(buf, buf.length * 2);
-	                	}
-                	} else {
-                		this.logger.warning("Nothing was read from the stream...");
-                		continue;
-                	}
-                	
-	                synchronized (this)
-	                {                
-	                    this.frame = new Frame(mime, image);
-	                    this.notifyAll();
 	                }
+                	
+                }
+                
+                synchronized (this)
+                {                
+                    this.frame = new Frame(mime, image);
+                    this.notifyAll();
                 }
             }
             
@@ -418,7 +424,7 @@ public class SourceStream implements Runnable
      * @return 
      * @throws IOException
      */
-    private String readStreamLine(BufferedInputStream in) throws IOException
+    private String readStreamLine(PushbackInputStream in) throws IOException
     {
     	// create an array of char named buf with size 255
         char buf[] = new char[255];
@@ -460,7 +466,7 @@ public class SourceStream implements Runnable
      * @return true if successfully a position just past the boundary
      * @throws IOException error reading stream
      */
-    private boolean skipToNextFrame(BufferedInputStream in) throws IOException
+    private boolean skipToNextFrame(PushbackInputStream in) throws IOException
     {
         String line;
         do
@@ -493,7 +499,7 @@ public class SourceStream implements Runnable
      * @return mime or null if error has occurred
      * @throws IOException error reading stream
      */
-    private String readContentType(BufferedInputStream in) throws IOException
+    private String readContentType(PushbackInputStream in) throws IOException
     {
         String line = this.readStreamLine(in);
         if (line == null || !line.toLowerCase().startsWith("content-type:"))
@@ -518,15 +524,15 @@ public class SourceStream implements Runnable
      * @return content length or -1 if error
      * @throws IOException error reading stream
      */
-    private int readContentLength(BufferedInputStream in) throws IOException
+    private int readContentLength(PushbackInputStream in) throws IOException
     {
         String line = this.readStreamLine(in);
         if (line == null || !line.toLowerCase().startsWith("content-length:"))
         {
             this.logger.warning("Unexpected stream format for " + this.config.name + ", did not receive " +
                     "frame content length.");
-            this.error = true;
-            this.errorReason = "Did not recieve content length";
+            //this.error = true;
+            //this.errorReason = "Did not recieve content length";
             return -1;
         }
 
